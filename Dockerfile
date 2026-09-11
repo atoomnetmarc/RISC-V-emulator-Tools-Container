@@ -24,13 +24,18 @@ ARG SAIL_MODEL_TAG
 ARG ACT_TAG
 ARG OCAML_SWITCH
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Cached apt archives + partial/ dir (missing in ubuntu:26.04)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    mkdir -p /var/cache/apt/archives/partial \
+    && apt-get update \
+    && apt-get -o APT::Keep-Downloaded-Packages=true install -y --no-install-recommends \
     build-essential cmake git curl opam libgmp-dev zlib1g-dev pkg-config \
     ruby-full ruby-bundler python3 z3 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# OCaml switch (sandboxing disabled inside a container)
-RUN opam init --disable-sandboxing -y \
+# Cached opam tarballs between builds
+RUN --mount=type=cache,target=/root/.opam/download-cache,sharing=locked \
+    opam init --disable-sandboxing -y \
     && opam switch create "${OCAML_SWITCH}" \
     && eval "$(opam env)"
 
@@ -69,7 +74,10 @@ ARG XPACK_GCC_VERSION
 # RISC-V bare-metal toolchain via xpm (ACT4 requires GCC >= 15). Every
 # riscv-none-elf-* binary is additionally exposed under the
 # riscv64-unknown-elf-* name used by the ACT configs and elf2bin.sh.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    mkdir -p /var/cache/apt/archives/partial \
+    && apt-get update \
+    && apt-get -o APT::Keep-Downloaded-Packages=true install -y --no-install-recommends \
     nodejs npm make python3 ruby-full ruby-bundler libgmp10 git z3 \
     && rm -rf /var/lib/apt/lists/* \
     && npm install --global xpm \
