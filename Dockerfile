@@ -5,7 +5,7 @@
 # UDB gems, Python venv) is ready to go.
 #
 # The emulator (DUT) is NOT part of this image: the host builds it with
-# PlatformIO and mounts it at /emulator at runtime. See plan.md.
+# PlatformIO and mounts it at /emulator at runtime.
 
 # Pinned versions
 ARG SAIL_TAG=0.20.2
