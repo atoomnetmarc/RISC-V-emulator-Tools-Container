@@ -13,6 +13,8 @@ ARG SAIL_MODEL_TAG=0.10
 ARG ACT_TAG=4.0.0
 ARG OCAML_SWITCH=5.5.0
 ARG XPACK_GCC_VERSION=15.2.0-1.1
+# Ubuntu package mirror (e.g. http://nl.archive.ubuntu.com/ubuntu)
+ARG UBUNTU_MIRROR=http://archive.ubuntu.com/ubuntu
 
 # ---------------------------------------------------------------------------
 # Stage 1: builder — opam, Sail compiler, sail-riscv model, ACT4 + gems + venv
@@ -23,6 +25,12 @@ ARG SAIL_TAG
 ARG SAIL_MODEL_TAG
 ARG ACT_TAG
 ARG OCAML_SWITCH
+ARG UBUNTU_MIRROR
+
+# Switch to a (local/fast) Ubuntu mirror before installing packages
+RUN sed -i -e "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" \
+           -e "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" \
+           /etc/apt/sources.list.d/ubuntu.sources
 
 # Cached apt archives + partial/ dir (missing in ubuntu:26.04)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -70,6 +78,12 @@ FROM ubuntu:26.04
 
 ARG ACT_TAG
 ARG XPACK_GCC_VERSION
+ARG UBUNTU_MIRROR
+
+# Switch to a (local/fast) Ubuntu mirror before installing packages
+RUN sed -i -e "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" \
+           -e "s|http://security.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" \
+           /etc/apt/sources.list.d/ubuntu.sources
 
 # RISC-V bare-metal toolchain via xpm (ACT4 requires GCC >= 15). Every
 # riscv-none-elf-* binary is additionally exposed under the
