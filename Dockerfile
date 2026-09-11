@@ -76,6 +76,10 @@ RUN cd /opt/riscv-arch-test \
 # ---------------------------------------------------------------------------
 FROM ubuntu:26.04
 
+LABEL org.opencontainers.image.source=https://github.com/atoomnetmarc/RISC-V-emulator-Tools-Container \
+      org.opencontainers.image.description="Container image for generating and running RISC-V Architectural Certification Tests (ACT4) against the RISC-V emulator" \
+      org.opencontainers.image.licenses=Apache-2.0
+
 ARG ACT_TAG
 ARG XPACK_GCC_VERSION
 ARG UBUNTU_MIRROR
