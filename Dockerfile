@@ -37,38 +37,68 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     mkdir -p /var/cache/apt/archives/partial \
     && apt-get update \
     && apt-get -o APT::Keep-Downloaded-Packages=true install -y --no-install-recommends \
-    build-essential cmake git curl opam libgmp-dev zlib1g-dev pkg-config \
+    build-essential cmake git curl opam libgmp-dev zlib1g-dev pkg-config ccache \
     ruby-full ruby-bundler python3 z3 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Cached opam tarballs between builds
-RUN --mount=type=cache,target=/root/.opam/download-cache,sharing=locked \
-    opam init --disable-sandboxing -y \
-    && opam switch create "${OCAML_SWITCH}" \
-    && eval "$(opam env)"
-
-# Sail compiler
-RUN git clone --depth 1 --branch "${SAIL_TAG}" https://github.com/rems-project/sail.git /tmp/sail \
+# The whole opam root (OCaml switch, packages, installed Sail) lives in a cache
+# mount: it is only needed inside the builder stage, so nothing is lost from the
+# image. Steps with cache mounts are never layer-cached, so everything here must
+# be idempotent: init/switch only run when missing, the Sail clone is reused and
+# dune rebuilds incrementally. -j lets opam build independent packages in
+# parallel.
+RUN --mount=type=cache,target=/root/.opam,sharing=locked \
+    --mount=type=cache,target=/tmp/sail,sharing=locked \
+    opam init --disable-sandboxing -j"$(nproc)" -y \
+    && if opam switch list --short 2>/dev/null | grep -qx "${OCAML_SWITCH}"; then \
+         opam switch set "${OCAML_SWITCH}"; \
+       else \
+         opam switch create "${OCAML_SWITCH}" -j"$(nproc)"; \
+       fi \
     && eval "$(opam env)" \
+    && if [ ! -d /tmp/sail/.git ] || [ "$(git -C /tmp/sail describe --tags 2>/dev/null)" != "${SAIL_TAG}" ]; then \
+         find /tmp/sail -mindepth 1 -delete \
+         && git clone --depth 1 --branch "${SAIL_TAG}" https://github.com/rems-project/sail.git /tmp/sail; \
+       fi \
     && cd /tmp/sail \
-    && opam install . --deps-only -y \
+    && opam install . --deps-only -y -j"$(nproc)" \
     && dune build --release \
     && dune install
 
-# sail-riscv model (compiled C simulator, RV32 + RV64)
-RUN git clone --depth 1 --branch "${SAIL_MODEL_TAG}" https://github.com/riscv/sail-riscv.git /tmp/sail-riscv \
+# sail-riscv model (compiled C simulator, RV32 + RV64). The checkout and build
+# tree are cache-mounted so Sail codegen and CMake rebuild incrementally; ccache
+# avoids recompiling unchanged C/C++ sources. The finished c_emulator is copied
+# out of the cache mount into the image layer so stage 2 can COPY it.
+RUN --mount=type=cache,target=/root/.opam,sharing=locked \
+    --mount=type=cache,target=/tmp/sail-riscv,sharing=locked \
+    --mount=type=cache,target=/root/.cache/ccache,sharing=locked \
+    if [ ! -d /tmp/sail-riscv/.git ] || [ "$(git -C /tmp/sail-riscv describe --tags 2>/dev/null)" != "${SAIL_MODEL_TAG}" ]; then \
+      find /tmp/sail-riscv -mindepth 1 -delete \
+      && git clone --depth 1 --branch "${SAIL_MODEL_TAG}" https://github.com/riscv/sail-riscv.git /tmp/sail-riscv; \
+    fi \
     && eval "$(opam env)" \
     && cd /tmp/sail-riscv \
-    && DOWNLOAD_GMP=FALSE ./build_simulator.sh
+    && cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+         -DDOWNLOAD_GMP=FALSE -DENABLE_RISCV_TESTS=TRUE \
+         -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    && cmake --build build -j"$(nproc)" \
+    && rm -rf /opt/sail-riscv-build \
+    && cp -a build /opt/sail-riscv-build
 
 # ACT4 framework + UDB gems + Python venv (self-contained, no runtime network)
 RUN git clone --depth 1 --branch "${ACT_TAG}" https://github.com/riscv/riscv-arch-test.git /opt/riscv-arch-test
-RUN cd /opt/riscv-arch-test/framework/src/act/data \
+# Ruby gems: downloaded gems are kept in a cache mount so repeated builds only
+# install (fast) instead of downloading
+RUN --mount=type=cache,target=/root/.bundle-cache,sharing=locked \
+    cd /opt/riscv-arch-test/framework/src/act/data \
     && bundle config set path vendor/bundle \
+    && bundle config set cache_path /root/.bundle-cache \
     && bundle install
 RUN curl -LsSf https://astral.sh/uv/install.sh \
     | env UV_INSTALL_DIR=/usr/local/bin UV_UNMANAGED_INSTALL=1 sh
-RUN cd /opt/riscv-arch-test \
+# Python packages: uv cache mount avoids re-downloading wheels
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    cd /opt/riscv-arch-test \
     && UV_PYTHON_DOWNLOADS=never uv sync --frozen --python /usr/bin/python3
 
 # ---------------------------------------------------------------------------
@@ -92,7 +122,9 @@ RUN sed -i -e "s|http://archive.ubuntu.com/ubuntu|${UBUNTU_MIRROR}|g" \
 # RISC-V bare-metal toolchain via xpm (ACT4 requires GCC >= 15). Every
 # riscv-none-elf-* binary is additionally exposed under the
 # riscv64-unknown-elf-* name used by the ACT configs and elf2bin.sh.
+# xpm tarball cache: the ~100 MB RISC-V toolchain archive is only downloaded once
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/root/.cache/xpm,sharing=locked \
     mkdir -p /var/cache/apt/archives/partial \
     && apt-get update \
     && apt-get -o APT::Keep-Downloaded-Packages=true install -y --no-install-recommends \
@@ -107,7 +139,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
          ln -s "$f" "/usr/local/bin/riscv64-unknown-elf-$suffix"; \
        done
 
-COPY --from=builder /tmp/sail-riscv/build/c_emulator /opt/sail-riscv/build/c_emulator
+COPY --from=builder /opt/sail-riscv-build/c_emulator /opt/sail-riscv/build/c_emulator
 COPY --from=builder /opt/riscv-arch-test /opt/riscv-arch-test
 COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 # UDB downloads the z3 shared library the first time it runs; the builder

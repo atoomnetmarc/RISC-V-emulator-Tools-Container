@@ -9,7 +9,7 @@ The emulator (DUT) is not part of the image: the host builds it with PlatformIO 
 ## Build
 
 ```bash
-podman build --log-level debug --build-arg UBUNTU_MIRROR=http://nl.archive.ubuntu.com/ubuntu -t riscv-emulator-tools-container .
+podman build --log-level debug --build-arg UBUNTU_MIRROR=http://nl.archive.ubuntu.com/ubuntu -t riscv-emulator-tools-container . && podman image prune -f
 ```
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
