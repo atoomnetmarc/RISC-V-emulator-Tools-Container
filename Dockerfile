@@ -9,9 +9,9 @@
 
 # Pinned versions
 ARG SAIL_TAG=0.20.2
-ARG SAIL_MODEL_TAG=0.10
-ARG ACT_TAG=4.0.0
-ARG OCAML_SWITCH=5.5.0
+ARG SAIL_MODEL_TAG=0.13.1
+ARG ACT_TAG=4.1.0
+ARG OCAML_SWITCH=5.5.1
 ARG XPACK_GCC_VERSION=15.2.0-1.1
 # Ubuntu package mirror (e.g. http://nl.archive.ubuntu.com/ubuntu)
 ARG UBUNTU_MIRROR=http://archive.ubuntu.com/ubuntu
