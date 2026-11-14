@@ -87,6 +87,20 @@ RUN --mount=type=cache,target=/root/.opam,sharing=locked \
 
 # ACT4 framework + UDB gems + Python venv (self-contained, no runtime network)
 RUN git clone --depth 1 --branch "${ACT_TAG}" https://github.com/riscv/riscv-arch-test.git /opt/riscv-arch-test
+
+# Temporary ACT 4.1.0 source patches. See PATCHES.md. An ACT upgrade may make
+# them unnecessary; check each patch against the new tag and remove it when the
+# upstream source contains the fix.
+#
+# 1. The sail reference model overflows the 110-entry trap signature region in
+#    this test; 270 matches the sibling ExceptionsSv source.
+# 2. The S-mode prolog enables satp with an empty root page table. The
+#    identity-map PTE is written by code that runs in S-mode, so the first
+#    S-mode fetch faults and the S-mode handler faults in the same unmapped
+#    region. The patch writes the PTE in M-mode, where satp has no effect.
+COPY patches/ /tmp/act-patches/
+RUN git -C /opt/riscv-arch-test apply /tmp/act-patches/trap-sigupd-count-zaamo-umode.patch
+RUN git -C /opt/riscv-arch-test apply /tmp/act-patches/identity-map-ahead-of-smode.patch
 # Ruby gems: downloaded gems are kept in a cache mount so repeated builds only
 # install (fast) instead of downloading
 RUN --mount=type=cache,target=/root/.bundle-cache,sharing=locked \
