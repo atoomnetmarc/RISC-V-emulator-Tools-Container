@@ -1,31 +1,19 @@
 # ACT container patches
 
-The image pins ACT 4.1.0. Two source patches adapt the framework to the emulator. Both patches are temporary: an ACT upgrade may make them unnecessary.
+The image pins ACT `act4` commit `1c3e9f2a89e103eeed0a3e6ba1bc699f100fd481`. The commit sizes the trap signature region per test chunk: the default is 0, the privileged generator reserves 1500 entries, and assembly tests link with a 128-byte stack. The image applies one temporary source patch.
 
-## 1. Trap signature region in the Zaamo U-mode source
+## Trap handler xEPC advance without ZCA
 
-File: `tests/priv/ExceptionsSvZaamo/sv32_exceptions_Zaamo_Umode.S`
+File: `tests/env/rvtest_trap_handler.h`
 
-Patch: `patches/trap-sigupd-count-zaamo-umode.patch`
+Patch: `patches/trap-handler-width-without-zca.patch`
 
-Change: `TRAP_SIGUPD_COUNT` 110 -> 270.
+Change: the `adj_<mode>epc_rtn` block always uses the instruction-width detection. The `#ifdef ZCA_SUPPORTED` guard and the `li T2, 4` fallback are removed.
 
-Reason: the sail reference model overflows the 110-entry trap signature region. 270 matches the sibling ExceptionsSv source.
-
-Applied by: `git apply` in the Dockerfile.
-
-## 2. Identity map ahead of the S-mode switch
-
-File: `tests/env/rvtest_setup.h`
-
-Patch: `patches/identity-map-ahead-of-smode.patch`
-
-Change: the patch places the `rvtest_identity_map` block directly after `RVTEST_BOOT_TO_MMODE`, ahead of the `RVTEST_BOOT_TO_SMODE` call.
-
-Reason: the S-mode prolog enables `satp` with an empty root page table. The identity-map PTE is written by code that runs in S-mode. The first S-mode fetch faults on the empty table, and the S-mode handler faults in the same unmapped region, which produces a trap loop. The patch writes the PTE in M-mode, where `satp` has no effect.
+Reason: a misaligned fetch has a 2-byte-aligned `xEPC`. The handler must advance to the next instruction boundary. The fixed 4-byte advance skips the instruction at the next 4-byte boundary. The width detection reads the low halfword at `xEPC` and advances 2 or 4. The `lhu` is safe because `xEPC` is 2-byte aligned.
 
 Applied by: `git apply` in the Dockerfile.
 
 ## Upgrade note
 
-Both patches target ACT 4.1.0. Check each patch against the new ACT tag. Remove a patch when the upstream source contains the fix.
+The patch targets the pinned commit. Check the patch against a new commit and remove it when the upstream source contains the fix.
