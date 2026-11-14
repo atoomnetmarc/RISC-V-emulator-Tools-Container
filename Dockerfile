@@ -47,13 +47,22 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # be idempotent: init/switch only run when missing, the Sail clone is reused and
 # dune rebuilds incrementally. -j lets opam build independent packages in
 # parallel.
+#
+# opam init runs --bare: without it opam always tries to create an initial
+# "default" switch, which fails on a cache mount left behind by an interrupted
+# build ("Directory /root/.opam/default already exists") and aborts the step.
+# A switch directory that exists but is not registered (interrupted
+# "opam switch create") is removed before recreating it.
 RUN --mount=type=cache,target=/root/.opam,sharing=locked \
     --mount=type=cache,target=/tmp/sail,sharing=locked \
-    opam init --disable-sandboxing -j"$(nproc)" -y \
+    if [ ! -f /root/.opam/config ]; then \
+      opam init --bare --disable-sandboxing -y; \
+    fi \
     && if opam switch list --short 2>/dev/null | grep -qx "${OCAML_SWITCH}"; then \
          opam switch set "${OCAML_SWITCH}"; \
        else \
-         opam switch create "${OCAML_SWITCH}" -j"$(nproc)"; \
+         rm -rf "/root/.opam/${OCAML_SWITCH}" \
+         && opam switch create "${OCAML_SWITCH}" -j"$(nproc)"; \
        fi \
     && eval "$(opam env)" \
     && if [ ! -d /tmp/sail/.git ] || [ "$(git -C /tmp/sail describe --tags 2>/dev/null)" != "${SAIL_TAG}" ]; then \
