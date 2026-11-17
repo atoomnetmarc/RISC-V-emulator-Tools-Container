@@ -8,9 +8,9 @@
 # PlatformIO and mounts it at /emulator at runtime.
 
 # Pinned versions
-ARG SAIL_TAG=0.20.2
-ARG SAIL_MODEL_TAG=0.13.1
-ARG ACT_TAG=4.1.0
+ARG SAIL_TAG=0.20.3
+ARG SAIL_MODEL_TAG=0.16
+ARG ACT_COMMIT=1c3e9f2a89e103eeed0a3e6ba1bc699f100fd481
 ARG OCAML_SWITCH=5.5.1
 ARG XPACK_GCC_VERSION=15.2.0-1.1
 # Ubuntu package mirror (e.g. http://nl.archive.ubuntu.com/ubuntu)
@@ -23,7 +23,7 @@ FROM ubuntu:26.04 AS builder
 
 ARG SAIL_TAG
 ARG SAIL_MODEL_TAG
-ARG ACT_TAG
+ARG ACT_COMMIT
 ARG OCAML_SWITCH
 ARG UBUNTU_MIRROR
 
@@ -94,8 +94,23 @@ RUN --mount=type=cache,target=/root/.opam,sharing=locked \
     && rm -rf /opt/sail-riscv-build \
     && cp -a build /opt/sail-riscv-build
 
-# ACT4 framework + UDB gems + Python venv (self-contained, no runtime network)
-RUN git clone --depth 1 --branch "${ACT_TAG}" https://github.com/riscv/riscv-arch-test.git /opt/riscv-arch-test
+# ACT4 framework + UDB gems + Python venv (self-contained, no runtime network).
+# The commit is pinned because the per-chunk trap signature counts are not in a
+# release tag.
+RUN git init /opt/riscv-arch-test \
+    && git -C /opt/riscv-arch-test remote add origin https://github.com/riscv/riscv-arch-test.git \
+    && git -C /opt/riscv-arch-test fetch --depth 1 origin "${ACT_COMMIT}" \
+    && git -C /opt/riscv-arch-test checkout FETCH_HEAD
+
+# Temporary ACT source patch. See PATCHES.md. An ACT upgrade may make it
+# unnecessary; check the patch against the pinned commit and remove it when the
+# upstream source contains the fix.
+#
+# The trap handler advances xEPC by 4 when ZCA_SUPPORTED is not defined. A
+# misaligned fetch has a 2-byte-aligned xEPC, so the advance must use the
+# instruction width. The patch always uses the width detection.
+COPY patches/ /tmp/act-patches/
+RUN git -C /opt/riscv-arch-test apply /tmp/act-patches/trap-handler-width-without-zca.patch
 # Ruby gems: downloaded gems are kept in a cache mount so repeated builds only
 # install (fast) instead of downloading
 RUN --mount=type=cache,target=/root/.bundle-cache,sharing=locked \
@@ -119,7 +134,7 @@ LABEL org.opencontainers.image.source=https://github.com/atoomnetmarc/RISC-V-emu
       org.opencontainers.image.description="Container image for generating and running RISC-V Architectural Certification Tests (ACT4) against the RISC-V emulator" \
       org.opencontainers.image.licenses=Apache-2.0
 
-ARG ACT_TAG
+ARG ACT_COMMIT
 ARG XPACK_GCC_VERSION
 ARG UBUNTU_MIRROR
 
@@ -164,7 +179,7 @@ ENV ACT_DIR=/opt/riscv-arch-test \
     LOG_DIR=/opt/riscv-arch-test/work/test-all \
     UV_FROZEN=1 \
     UV_NO_SYNC=1 \
-    ACT_VERSION=${ACT_TAG}
+    ACT_VERSION=${ACT_COMMIT}
 
 # The emulator is mounted from the host at runtime:
 #   podman run -v <RISC-V-emulator-Native>:/emulator ...
