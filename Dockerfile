@@ -153,6 +153,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && apt-get update \
     && apt-get -o APT::Keep-Downloaded-Packages=true install -y --no-install-recommends \
     nodejs npm make python3 ruby-full ruby-bundler libgmp10 git z3 \
+    build-essential bison flex device-tree-compiler swig xxd \
+    gcc-riscv64-linux-gnu \
     && rm -rf /var/lib/apt/lists/* \
     && npm install --global xpm \
     && xpm install --global "@xpack-dev-tools/riscv-none-elf-gcc@${XPACK_GCC_VERSION}" \
